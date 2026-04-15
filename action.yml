@@ -1,0 +1,45 @@
+name: 'Cyclopt Performance Tests'
+description: 'Run Cyclopt performance tests against your application'
+author: 'Cyclopt'
+
+branding:
+  icon: 'activity'
+  color: 'blue'
+
+inputs:
+  token:
+    description: 'Cyclopt project token (from GitHub Secrets)'
+    required: true
+  target-url:
+    description: 'URL of the application to test (e.g. http://localhost:8080)'
+    required: true
+  health-check-path:
+    description: 'Health check endpoint path'
+    required: false
+    default: '/health'
+  health-check-timeout:
+    description: 'Health check timeout in seconds'
+    required: false
+    default: '60'
+  cyclopt-api-url:
+    description: 'Cyclopt backend API URL'
+    required: false
+    default: 'https://api.cyclopt.com'
+
+outputs:
+  verdict:
+    description: 'Test verdict: pass or fail'
+  run-id:
+    description: 'Cyclopt run ID'
+  dashboard-url:
+    description: 'URL to the Cyclopt dashboard for this run'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    INPUT_TOKEN: ${{ inputs.token }}
+    INPUT_TARGET_URL: ${{ inputs.target-url }}
+    INPUT_HEALTH_CHECK_PATH: ${{ inputs.health-check-path }}
+    INPUT_HEALTH_CHECK_TIMEOUT: ${{ inputs.health-check-timeout }}
+    INPUT_CYCLOPT_API_URL: ${{ inputs.cyclopt-api-url }}
