@@ -61,7 +61,7 @@ elapsed=0
 healthy=false
 
 while [ "${elapsed}" -lt "${HEALTH_CHECK_TIMEOUT}" ]; do
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "${HEALTH_URL}" 2>/dev/null || echo "000")
+    http_code=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time 5 "${HEALTH_URL}" 2>/dev/null || echo "000")
 
     if [ "${http_code}" = "200" ]; then
         healthy=true
