@@ -1,0 +1,19 @@
+{
+  "name": "cyclopt-performance-action",
+  "version": "1.0.0",
+  "description": "Run Cyclopt performance tests against your application",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "ncc build src/index.js -o dist"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@actions/exec": "^1.1.1",
+    "@actions/github": "^6.0.0"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.3"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

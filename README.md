@@ -4,7 +4,7 @@
 
 ## Overview
 
-A Docker-based GitHub Action that orchestrates Cyclopt performance tests. This action is a thin wrapper: it downloads and executes a compiled runner binary produced by the Cyclopt backend, then reports results.
+A JavaScript GitHub Action that orchestrates Cyclopt performance tests. This action is a thin wrapper: it downloads and executes a compiled runner binary produced by the Cyclopt backend, then reports results.
 
 **The action does NOT run k6 directly.** The runner binary contains k6 and test scripts embedded at compile time.
 
@@ -51,7 +51,7 @@ jobs:
           # The action handles health check polling
 
       - name: Run Cyclopt Performance Tests
-        uses: cyclopt/secure-execution-action@v1
+        uses: cyclopt/performance-action@v1
         with:
           token: ${{ secrets.CYCLOPT_TOKEN }}
           target-url: http://localhost:8080
@@ -61,7 +61,7 @@ jobs:
 
 ```yaml
       - name: Run Cyclopt Performance Tests
-        uses: cyclopt/secure-execution-action@v1
+        uses: cyclopt/performance-action@v1
         with:
           token: ${{ secrets.CYCLOPT_TOKEN }}
           target-url: http://localhost:8080
@@ -93,7 +93,7 @@ jobs:
 ```yaml
       - name: Run Cyclopt Performance Tests
         id: cyclopt
-        uses: cyclopt/secure-execution-action@v1
+        uses: cyclopt/performance-action@v1
         with:
           token: ${{ secrets.CYCLOPT_TOKEN }}
           target-url: http://localhost:8080
@@ -108,7 +108,7 @@ jobs:
 ## Execution Flow
 
 ### 1. Health Check
-Polls `{target-url}{health-check-path}` every 2 seconds until HTTP 200 is received, or the timeout is reached.
+Polls `{target-url}{health-check-path}` every 2 seconds until HTTP 200 is received (follows redirects), or the timeout is reached.
 
 ### 2. Initialize Run
 Sends project metadata (commit SHA, branch, PR number, runner info) to the Cyclopt backend. The backend:
@@ -206,32 +206,6 @@ Authorization: Bearer <CYCLOPT_TOKEN>
 }
 ```
 
-## PR Comment Format
-
-The action posts a markdown comment on the PR:
-
-```markdown
-<!-- cyclopt-performance-results -->
-## :white_check_mark: Cyclopt Performance Tests Passed
-
-All thresholds passed. P95 response time: 230ms.
-
-### Threshold Results
-
-| Metric | Threshold | Actual | Status |
-|--------|-----------|--------|--------|
-| http_req_duration (p95) | < 500ms | 230ms | :white_check_mark: |
-| http_req_failed | < 1% | 0.00% | :white_check_mark: |
-
----
-
-:bar_chart: [View full results on Cyclopt Dashboard](https://app.cyclopt.com/runs/run_xxx)
-
-<sub>Commit: `abc1234` | Run: `run_xxx`</sub>
-```
-
-If a previous Cyclopt comment exists on the PR, it is updated instead of creating a new one. The `<!-- cyclopt-performance-results -->` HTML comment is used as a marker to identify Cyclopt comments.
-
 ## Error Handling
 
 | Failure Mode | Behavior |
@@ -247,11 +221,11 @@ If a previous Cyclopt comment exists on the PR, it is updated instead of creatin
 
 ## Security
 
-- The `CYCLOPT_TOKEN` is masked in logs via `::add-mask::`
+- The `CYCLOPT_TOKEN` is masked in logs via `core.setSecret()`
 - The one-time `execution_token` is also masked
 - The runner binary handles all cryptographic verification (Ed25519 signatures)
 - No test scripts or k6 binaries are stored on the runner — everything is embedded in the compiled binary
-- Temp files are cleaned up on exit (including on signals)
+- The downloaded binary is cleaned up on exit (including on failure)
 
 ## Development
 
@@ -260,20 +234,32 @@ If a previous Cyclopt comment exists on the PR, it is updated instead of creatin
 ```
 secure-execution-action/
   action.yml          # GitHub Action metadata and inputs
-  Dockerfile          # Alpine-based container (bash + curl + jq)
-  entrypoint.sh       # All orchestration logic
+  src/
+    index.js          # Main action logic
+  dist/
+    index.js          # Compiled bundle (ncc output, committed to git)
+  package.json        # Dependencies
   README.md           # This file
 ```
+
+### Building
+
+```bash
+npm install
+npm run build        # runs: ncc build src/index.js -o dist
+```
+
+The `dist/index.js` file is a single compiled bundle that includes all dependencies. It must be committed to git — this is what GitHub Actions actually runs.
 
 ### Testing locally
 
 ```bash
-# Simulate the action environment
+# Set required environment variables
 export INPUT_TOKEN="test-token"
-export INPUT_TARGET_URL="http://localhost:8080"
-export INPUT_HEALTH_CHECK_PATH="/health"
-export INPUT_HEALTH_CHECK_TIMEOUT="30"
-export INPUT_CYCLOPT_API_URL="http://localhost:3000"
+export INPUT_TARGET-URL="http://localhost:8080"
+export INPUT_HEALTH-CHECK-PATH="/health"
+export INPUT_HEALTH-CHECK-TIMEOUT="30"
+export INPUT_CYCLOPT-API-URL="http://localhost:3000"
 export GITHUB_SHA="abc123"
 export GITHUB_REF_NAME="main"
 export GITHUB_EVENT_NAME="push"
@@ -282,11 +268,5 @@ export RUNNER_OS="Linux"
 export RUNNER_ARCH="X64"
 
 touch /tmp/github-output
-./entrypoint.sh
-```
-
-### Building the Docker image
-
-```bash
-docker build -t cyclopt-performance-action .
+node src/index.js
 ```
