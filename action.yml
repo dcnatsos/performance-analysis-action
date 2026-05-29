@@ -8,7 +8,7 @@ branding:
 
 inputs:
   token:
-    description: 'Cyclopt project token (from GitHub Secrets)'
+    description: 'Cyclopt API token (from GitHub Secrets)'
     required: true
   target-url:
     description: 'URL of the application to test (e.g. http://localhost:8080)'
@@ -24,7 +24,7 @@ inputs:
   cyclopt-api-url:
     description: 'Cyclopt backend API URL'
     required: false
-    default: 'https://api.cyclopt.com'
+    default: 'https://server.cyclopt.com'
 
 outputs:
   verdict:
@@ -32,7 +32,7 @@ outputs:
   run-id:
     description: 'Cyclopt run ID'
   dashboard-url:
-    description: 'URL to the Cyclopt dashboard for this run'
+    description: 'URL to the Cyclopt dashboard for this run, when provided by the backend'
 
 runs:
   using: 'docker'
