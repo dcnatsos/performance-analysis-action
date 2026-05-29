@@ -18,10 +18,10 @@ Client Workflow
 | Cyclopt Action    |  <-- This repo
 |                   |
 | 1. Health check   |
-| 2. Init run       |-----> POST /api/v1/runs/init
-| 3. Download binary|-----> GET  /api/v1/runs/{id}/binary
+| 2. Init run       |-----> POST /bundler/runs/init
+| 3. Download binary|-----> GET  /bundler/runs/{id}/binary
 | 4. Execute binary |-----> (binary handles k6 + results)
-| 5. Fetch results  |-----> GET  /api/v1/runs/{id}
+| 5. Fetch results  |-----> GET  /bundler/runs/results/{id}
 | 6. PR comment     |-----> GitHub API
 | 7. Cleanup        |
 +-------------------+
@@ -53,7 +53,7 @@ jobs:
       - name: Run Cyclopt Performance Tests
         uses: cyclopt/secure-execution-action@v1
         with:
-          token: ${{ secrets.CYCLOPT_TOKEN }}
+          token: ${{ secrets.CYCLOPT_API_TOKEN }}
           target-url: http://localhost:8080
 ```
 
@@ -63,22 +63,22 @@ jobs:
       - name: Run Cyclopt Performance Tests
         uses: cyclopt/secure-execution-action@v1
         with:
-          token: ${{ secrets.CYCLOPT_TOKEN }}
+          token: ${{ secrets.CYCLOPT_API_TOKEN }}
           target-url: http://localhost:8080
           health-check-path: /api/health
           health-check-timeout: '120'
-          cyclopt-api-url: https://api.cyclopt.com
+          cyclopt-api-url: https://server.cyclopt.com
 ```
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `token` | Yes | — | Cyclopt project token (from `${{ secrets.CYCLOPT_TOKEN }}`) |
+| `token` | Yes | — | Cyclopt API token (from `${{ secrets.CYCLOPT_API_TOKEN }}`) |
 | `target-url` | Yes | — | URL of the application under test |
 | `health-check-path` | No | `/health` | Health check endpoint path |
 | `health-check-timeout` | No | `60` | Health check timeout in seconds |
-| `cyclopt-api-url` | No | `https://api.cyclopt.com` | Cyclopt backend API URL |
+| `cyclopt-api-url` | No | `https://server.cyclopt.com` | Cyclopt backend API URL |
 
 ## Outputs
 
@@ -95,7 +95,7 @@ jobs:
         id: cyclopt
         uses: cyclopt/secure-execution-action@v1
         with:
-          token: ${{ secrets.CYCLOPT_TOKEN }}
+          token: ${{ secrets.CYCLOPT_API_TOKEN }}
           target-url: http://localhost:8080
 
       - name: Check results
@@ -112,16 +112,16 @@ Polls `{target-url}{health-check-path}` every 2 seconds until HTTP 200 is receiv
 
 ### 2. Initialize Run
 Sends project metadata (commit SHA, branch, PR number, runner info) to the Cyclopt backend. The backend:
-- Validates the project token
+- Validates the Cyclopt API token
 - Generates k6 test scripts from the project configuration
 - Compiles a runner binary with embedded k6 + scripts
-- Returns a `run_id`, `binary_download_url`, and one-time `execution_token`
+- Returns a `runId`, `binaryUrl`, and one-time `executionToken`
 
 ### 3. Download Binary
 Downloads the compiled runner binary from the backend. The binary is a single static Go executable (~69MB) containing everything needed to run the tests.
 
 ### 4. Execute Binary
-Runs the binary with `--target-url`, `--token`, and `--health-check-path`. The binary internally:
+Runs the binary with `--target-url`, `--token`, `--health-check-path`, and `CYCLOPT_API_TOKEN` in its environment. The binary internally:
 - Validates the one-time token with the backend (with Ed25519 signature verification)
 - Extracts embedded k6 and test scripts
 - Runs k6 against the target URL
@@ -129,13 +129,13 @@ Runs the binary with `--target-url`, `--token`, and `--health-check-path`. The b
 - Exits with code 0 (pass) or 1 (fail)
 
 ### 5. Fetch Results
-Retrieves formatted results from the backend including verdict, threshold results, and a dashboard URL.
+Retrieves formatted results from the backend including verdict and threshold results.
 
 ### 6. PR Comment
 If triggered by a pull request, posts (or updates) a comment with:
 - Pass/fail verdict
 - Threshold results table
-- Link to the Cyclopt dashboard
+- Link to the Cyclopt dashboard, when the backend returns one
 
 ### 7. Cleanup
 Removes the downloaded binary and exits with the binary's exit code.
@@ -146,22 +146,22 @@ Removes the downloaded binary and exits with the binary's exit code.
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/v1/runs/init` | POST | Bearer token | Initialize a performance test run |
-| `/api/v1/runs/{run_id}/binary` | GET | Bearer token | Download the compiled runner binary |
-| `/api/v1/runs/{run_id}` | GET | Bearer token | Fetch formatted results |
+| `/bundler/runs/init` | POST | `x-access-cyclopt-token` | Initialize a performance test run |
+| `/bundler/runs/{runId}/binary` | GET | `x-access-cyclopt-token` | Download the compiled runner binary |
+| `/bundler/runs/results/{runId}` | GET | `x-access-cyclopt-token` | Fetch formatted results |
 
 ### Endpoints called by the runner binary (NOT by this action)
 
 | Endpoint | Method | Auth | Purpose |
 |----------|--------|------|---------|
-| `/api/v1/tokens/validate` | POST | Token in body | Validate one-time execution token |
-| `/api/v1/results` | POST | Token in body | Submit raw k6 results |
+| `/bundler/runs/tokens/validate` | POST | `x-access-cyclopt-token` + `runToken` in body | Validate one-time execution token |
+| `/bundler/runs/results` | POST | `x-access-cyclopt-token` + `runToken` in body | Submit raw k6 results |
 
 ### Init Request
 
 ```json
-POST /api/v1/runs/init
-Authorization: Bearer <CYCLOPT_TOKEN>
+POST /bundler/runs/init
+x-access-cyclopt-token: <CYCLOPT_API_TOKEN>
 
 {
     "commit_sha": "abc123",
@@ -169,8 +169,8 @@ Authorization: Bearer <CYCLOPT_TOKEN>
     "pr_number": 42,
     "trigger_type": "pull_request",
     "runner_info": {
-        "os": "Linux",
-        "arch": "X64"
+        "os": "linux",
+        "arch": "amd64"
     }
 }
 ```
@@ -179,17 +179,17 @@ Authorization: Bearer <CYCLOPT_TOKEN>
 
 ```json
 {
-    "run_id": "run_xxx",
-    "binary_download_url": "/api/v1/runs/run_xxx/binary",
-    "execution_token": "otp_xxx"
+    "runId": "run_xxx",
+    "binaryUrl": "https://server.cyclopt.com/bundler/runs/run_xxx/binary",
+    "executionToken": "otp_xxx"
 }
 ```
 
 ### Results Response
 
 ```json
-GET /api/v1/runs/{run_id}
-Authorization: Bearer <CYCLOPT_TOKEN>
+GET /bundler/runs/results/{runId}
+x-access-cyclopt-token: <CYCLOPT_API_TOKEN>
 
 {
     "verdict": "pass",
@@ -201,8 +201,7 @@ Authorization: Bearer <CYCLOPT_TOKEN>
             "actual": "230ms",
             "passed": true
         }
-    ],
-    "dashboard_url": "https://app.cyclopt.com/runs/run_xxx"
+    ]
 }
 ```
 
@@ -225,8 +224,6 @@ All thresholds passed. P95 response time: 230ms.
 
 ---
 
-:bar_chart: [View full results on Cyclopt Dashboard](https://app.cyclopt.com/runs/run_xxx)
-
 <sub>Commit: `abc1234` | Run: `run_xxx`</sub>
 ```
 
@@ -247,8 +244,8 @@ If a previous Cyclopt comment exists on the PR, it is updated instead of creatin
 
 ## Security
 
-- The `CYCLOPT_TOKEN` is masked in logs via `::add-mask::`
-- The one-time `execution_token` is also masked
+- The `CYCLOPT_API_TOKEN` passed through the `token` input is masked in logs via `::add-mask::`
+- The one-time `executionToken` is also masked
 - The runner binary handles all cryptographic verification (Ed25519 signatures)
 - No test scripts or k6 binaries are stored on the runner — everything is embedded in the compiled binary
 - Temp files are cleaned up on exit (including on signals)

@@ -22,7 +22,7 @@ CYCLOPT_TOKEN="${INPUT_TOKEN:?'Error: token input is required'}"
 TARGET_URL="${INPUT_TARGET_URL:?'Error: target-url input is required'}"
 HEALTH_CHECK_PATH="${INPUT_HEALTH_CHECK_PATH:-/health}"
 HEALTH_CHECK_TIMEOUT="${INPUT_HEALTH_CHECK_TIMEOUT:-60}"
-CYCLOPT_API_URL="${INPUT_CYCLOPT_API_URL:-https://api.cyclopt.com}"
+CYCLOPT_API_URL="${INPUT_CYCLOPT_API_URL:-https://server.cyclopt.com}"
 
 # Strip trailing slash from API URL
 CYCLOPT_API_URL="${CYCLOPT_API_URL%/}"
@@ -90,8 +90,22 @@ log "Initializing Cyclopt run"
 COMMIT_SHA="${GITHUB_SHA:-unknown}"
 BRANCH="${GITHUB_REF_NAME:-unknown}"
 TRIGGER_TYPE="${GITHUB_EVENT_NAME:-unknown}"
-RUNNER_OS="${RUNNER_OS:-unknown}"
-RUNNER_ARCH="${RUNNER_ARCH:-unknown}"
+RUNNER_OS_RAW="${RUNNER_OS:-linux}"
+RUNNER_ARCH_RAW="${RUNNER_ARCH:-X64}"
+
+case "$(echo "${RUNNER_OS_RAW}" | tr '[:upper:]' '[:lower:]')" in
+    linux) RUNNER_OS_NORMALIZED="linux" ;;
+    macos) RUNNER_OS_NORMALIZED="darwin" ;;
+    windows) RUNNER_OS_NORMALIZED="windows" ;;
+    *) RUNNER_OS_NORMALIZED="linux" ;;
+esac
+
+case "$(echo "${RUNNER_ARCH_RAW}" | tr '[:upper:]' '[:lower:]')" in
+    x64) RUNNER_ARCH_NORMALIZED="amd64" ;;
+    arm64) RUNNER_ARCH_NORMALIZED="arm64" ;;
+    x86) RUNNER_ARCH_NORMALIZED="386" ;;
+    *) RUNNER_ARCH_NORMALIZED="amd64" ;;
+esac
 
 # Extract PR number (only set for pull_request events)
 PR_NUMBER=""
@@ -107,8 +121,8 @@ init_body=$(jq -n \
     --arg branch "${BRANCH}" \
     --arg pr_number "${PR_NUMBER}" \
     --arg trigger_type "${TRIGGER_TYPE}" \
-    --arg runner_os "${RUNNER_OS}" \
-    --arg runner_arch "${RUNNER_ARCH}" \
+    --arg runner_os "${RUNNER_OS_NORMALIZED}" \
+    --arg runner_arch "${RUNNER_ARCH_NORMALIZED}" \
     '{
         commit_sha: $commit_sha,
         branch: $branch,
@@ -120,15 +134,15 @@ init_body=$(jq -n \
         }
     }')
 
-info "Sending init request to ${CYCLOPT_API_URL}/api/v1/runs/init"
+info "Sending init request to ${CYCLOPT_API_URL}/bundler/runs/init"
 
 init_response=$(curl -s -w "\n%{http_code}" \
-    --max-time 30 \
+    --max-time 300 \
     -X POST \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer ${CYCLOPT_TOKEN}" \
+    -H "x-access-cyclopt-token: ${CYCLOPT_TOKEN}" \
     -d "${init_body}" \
-    "${CYCLOPT_API_URL}/api/v1/runs/init") || {
+    "${CYCLOPT_API_URL}/bundler/runs/init") || {
     error "Failed to connect to Cyclopt backend at ${CYCLOPT_API_URL}"
     error "Check your network connectivity and cyclopt-api-url input."
     exit 1
@@ -143,7 +157,7 @@ if [ "${init_http_code}" != "200" ] && [ "${init_http_code}" != "201" ]; then
     error "Response: ${init_body_response}"
 
     case "${init_http_code}" in
-        401) error "Authentication failed. Check that your CYCLOPT_TOKEN is valid." ;;
+        401) error "Authentication failed. Check that your CYCLOPT_API_TOKEN secret is valid." ;;
         403) error "Access denied. Your token may not have permission for this project." ;;
         422) error "Invalid request. Check your action inputs." ;;
         5*)  error "Cyclopt backend error. Please try again or contact support." ;;
@@ -153,9 +167,9 @@ if [ "${init_http_code}" != "200" ] && [ "${init_http_code}" != "201" ]; then
 fi
 
 # Parse the init response
-RUN_ID=$(echo "${init_body_response}" | jq -r '.run_id // empty')
-BINARY_DOWNLOAD_URL=$(echo "${init_body_response}" | jq -r '.binary_download_url // empty')
-EXECUTION_TOKEN=$(echo "${init_body_response}" | jq -r '.execution_token // empty')
+RUN_ID=$(echo "${init_body_response}" | jq -r '.runId // empty')
+BINARY_DOWNLOAD_URL=$(echo "${init_body_response}" | jq -r '.binaryUrl // empty')
+EXECUTION_TOKEN=$(echo "${init_body_response}" | jq -r '.executionToken // empty')
 
 if [ -z "${RUN_ID}" ] || [ -z "${BINARY_DOWNLOAD_URL}" ] || [ -z "${EXECUTION_TOKEN}" ]; then
     error "Invalid init response from backend. Missing required fields."
@@ -183,7 +197,7 @@ info "Downloading from ${BINARY_DOWNLOAD_URL}"
 
 download_http_code=$(curl -s -o "${BINARY_PATH}" -w "%{http_code}" \
     --max-time 120 \
-    -H "Authorization: Bearer ${CYCLOPT_TOKEN}" \
+    -H "x-access-cyclopt-token: ${CYCLOPT_TOKEN}" \
     "${BINARY_DOWNLOAD_URL}") || {
     error "Failed to download runner binary from ${BINARY_DOWNLOAD_URL}"
     exit 1
@@ -214,7 +228,7 @@ log "Running performance tests"
 info "Executing: ${BINARY_PATH} --target-url ${TARGET_URL} --token [MASKED] --health-check-path ${HEALTH_CHECK_PATH}"
 
 set +e
-"${BINARY_PATH}" \
+CYCLOPT_API_TOKEN="${CYCLOPT_TOKEN}" "${BINARY_PATH}" \
     --target-url "${TARGET_URL}" \
     --token "${EXECUTION_TOKEN}" \
     --health-check-path "${HEALTH_CHECK_PATH}"
@@ -239,8 +253,8 @@ sleep 2
 
 results_response=$(curl -s -w "\n%{http_code}" \
     --max-time 30 \
-    -H "Authorization: Bearer ${CYCLOPT_TOKEN}" \
-    "${CYCLOPT_API_URL}/api/v1/runs/${RUN_ID}") || {
+    -H "x-access-cyclopt-token: ${CYCLOPT_TOKEN}" \
+    "${CYCLOPT_API_URL}/bundler/runs/results/${RUN_ID}") || {
     warn "Failed to fetch formatted results from backend. Skipping PR comment."
     results_response=""
 }
@@ -261,7 +275,9 @@ if [ -n "${results_response}" ]; then
         THRESHOLD_RESULTS=$(echo "${results_body}" | jq -r '.threshold_results // empty')
 
         info "Verdict: ${VERDICT}"
-        info "Dashboard: ${DASHBOARD_URL}"
+        if [ -n "${DASHBOARD_URL}" ]; then
+            info "Dashboard: ${DASHBOARD_URL}"
+        fi
     else
         warn "Backend returned HTTP ${results_http_code} when fetching results. Skipping PR comment."
     fi
@@ -308,6 +324,11 @@ if [ -n "${PR_NUMBER}" ] && [ -n "${VERDICT}" ] && [ -n "${GITHUB_TOKEN:-}" ]; t
             " |"' 2>/dev/null || echo "")
     fi
 
+    DASHBOARD_SECTION=""
+    if [ -n "${DASHBOARD_URL}" ]; then
+        DASHBOARD_SECTION=":bar_chart: [View full results on Cyclopt Dashboard](${DASHBOARD_URL})"
+    fi
+
     # Build the full comment body
     COMMENT_MARKER="<!-- cyclopt-performance-results -->"
 
@@ -320,7 +341,7 @@ ${THRESHOLD_TABLE}
 
 ---
 
-:bar_chart: [View full results on Cyclopt Dashboard](${DASHBOARD_URL:-#})
+${DASHBOARD_SECTION}
 
 <sub>Commit: \`${COMMIT_SHA:0:7}\` | Run: \`${RUN_ID}\`</sub>"
 
