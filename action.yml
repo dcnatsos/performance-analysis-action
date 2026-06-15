@@ -35,11 +35,14 @@ outputs:
     description: 'URL to the Cyclopt dashboard for this run, when provided by the backend'
 
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
-  env:
-    INPUT_TOKEN: ${{ inputs.token }}
-    INPUT_TARGET_URL: ${{ inputs.target-url }}
-    INPUT_HEALTH_CHECK_PATH: ${{ inputs.health-check-path }}
-    INPUT_HEALTH_CHECK_TIMEOUT: ${{ inputs.health-check-timeout }}
-    INPUT_CYCLOPT_API_URL: ${{ inputs.cyclopt-api-url }}
+  using: 'composite'
+  steps:
+    - name: Run Cyclopt Performance Tests
+      shell: bash
+      env:
+        INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_TARGET_URL: ${{ inputs.target-url }}
+        INPUT_HEALTH_CHECK_PATH: ${{ inputs.health-check-path }}
+        INPUT_HEALTH_CHECK_TIMEOUT: ${{ inputs.health-check-timeout }}
+        INPUT_CYCLOPT_API_URL: ${{ inputs.cyclopt-api-url }}
+      run: ${{ github.action_path }}/entrypoint.sh

@@ -42,6 +42,13 @@ error() { echo "::error::[cyclopt] $*"; }
 # Mask the token so it never appears in logs
 echo "::add-mask::${CYCLOPT_TOKEN}"
 
+for required_cmd in curl jq; do
+    if ! command -v "${required_cmd}" >/dev/null 2>&1; then
+        error "Missing required command: ${required_cmd}. Install it on the runner before using this action."
+        exit 1
+    fi
+done
+
 cleanup() {
     info "Cleaning up..."
     rm -f "${BINARY_PATH}"

@@ -4,7 +4,7 @@
 
 ## Overview
 
-A Docker-based GitHub Action that orchestrates Cyclopt performance tests. This action is a thin wrapper: it downloads and executes a compiled runner binary produced by the Cyclopt backend, then reports results.
+A composite GitHub Action that orchestrates Cyclopt performance tests directly on the GitHub runner. This action is a thin wrapper: it downloads and executes a compiled runner binary produced by the Cyclopt backend, then reports results.
 
 **The action does NOT run k6 directly.** The runner binary contains k6 and test scripts embedded at compile time.
 
@@ -108,7 +108,7 @@ jobs:
 ## Execution Flow
 
 ### 1. Health Check
-Polls `{target-url}{health-check-path}` every 2 seconds until HTTP 200 is received, or the timeout is reached.
+Polls `{target-url}{health-check-path}` every 2 seconds until HTTP 200 is received, or the timeout is reached. Because this is a composite action, it runs on the same runner host as the client workflow, so `http://localhost:8080` reaches an app started by a previous workflow step.
 
 ### 2. Initialize Run
 Sends project metadata (commit SHA, branch, PR number, runner info) to the Cyclopt backend. The backend:
@@ -257,7 +257,7 @@ If a previous Cyclopt comment exists on the PR, it is updated instead of creatin
 ```
 secure-execution-action/
   action.yml          # GitHub Action metadata and inputs
-  Dockerfile          # Alpine-based container (bash + curl + jq)
+  Dockerfile          # Legacy Docker action image; not used by the composite action
   entrypoint.sh       # All orchestration logic
   README.md           # This file
 ```
@@ -282,8 +282,6 @@ touch /tmp/github-output
 ./entrypoint.sh
 ```
 
-### Building the Docker image
+### Runner dependencies
 
-```bash
-docker build -t cyclopt-performance-action .
-```
+The action runs on the host runner and requires `bash`, `curl`, and `jq`. GitHub-hosted `ubuntu-latest` runners include these tools.
